@@ -12,3 +12,7 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 - Keep zero runtime dependencies.
 - Site lives in `site/` (plain HTML/CSS/JS), docs in `docs/` (MkDocs Material). Design notes: `site/DESIGN.md`.
 - One logical change per PR; describe how you tested it.
+
+## Releasing
+
+Push a `vX.Y.Z` tag. The Release workflow builds, publishes the release, and moves the major tag (`v0`) to it, so `uses: Blackman99/actnode@v0` always gets the latest release. To move it by hand: `git tag -f v0 vX.Y.Z^{} && git push -f origin refs/tags/v0`.

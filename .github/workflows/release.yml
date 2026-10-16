@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*.*.*"]   # not the moving major tag (v0), which this workflow updates
 
 permissions:
   contents: write
@@ -37,3 +37,10 @@ jobs:
           else
             gh release create "$TAG" dist/* --title "actnode ${TAG}" --generate-notes
           fi
+      - name: Move the major tag (e.g. v0) to this release
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          major="${TAG%%.*}"
+          git tag -f "$major" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$major"

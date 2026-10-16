@@ -8,6 +8,15 @@ Since 2026-06-02 GitHub-hosted runners run JavaScript actions on Node 24 by defa
 
 The warning names the action but not *which file and line* uses it, not whether the action is pulled in by a composite action, and not *which version fixes it*. `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` only hides it until Node 20 is removed from runners.
 
+Quick start as a GitHub Action:
+
+```yaml
+- uses: actions/checkout@v7
+- uses: Blackman99/actnode@v0
+  with:
+    fail: true
+```
+
 actnode answers all three:
 
 ```console

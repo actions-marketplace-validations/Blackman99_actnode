@@ -33,17 +33,22 @@ def http_get(url: str) -> Optional[str]:
     if tok and url.startswith("https://api.github.com/"):
         req.add_header("Authorization", f"Bearer {tok}")
         req.add_header("Accept", "application/vnd.github+json")
-    try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return r.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None
-        if e.code in (403, 429):
-            raise RuntimeError(
-                f"GitHub rate limit hit on {url}. Set GITHUB_TOKEN (or GH_TOKEN) and retry."
-            ) from e
-        raise
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            if e.code in (403, 429):
+                raise RuntimeError(
+                    f"GitHub rate limit hit on {url}. Set GITHUB_TOKEN (or GH_TOKEN) and retry."
+                ) from e
+            if e.code >= 500 and attempt < 2:
+                time.sleep(1 + 2 * attempt)  # transient GitHub 5xx: retry
+                continue
+            raise
+    return None
 
 
 def cache_dir() -> Path:

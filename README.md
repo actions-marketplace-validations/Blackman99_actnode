@@ -7,7 +7,26 @@
 
 Since 2026-06-02 GitHub runners run JavaScript actions on Node 24, and jobs that use node20 actions end with *"Node.js 20 actions are deprecated. The following actions are running on Node.js 20…"*. The warning doesn't say **which file and line**, misses actions **hidden inside composite actions**, and doesn't say **which version fixes it**. `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` only hides it ([actions/runner#4295](https://github.com/actions/runner/issues/4295)) until Node 20 is removed from runners.
 
-## Install
+## Quick start: GitHub Action
+
+Add this workflow (e.g. `.github/workflows/node-runtime.yml`). It writes a job-summary table of every step whose action still runs on Node 20 or older, with the release that runs on Node 24, and fails the job if any is found:
+
+```yaml
+name: node-runtime
+on: [pull_request, workflow_dispatch]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Blackman99/actnode@v0
+        with:
+          fail: true      # inputs: path (.), target (24), fail (true), token (github.token)
+```
+
+`@v0` is a moving major tag that always points at the latest v0.x release; pin `@v0.2.0` or a SHA if you prefer.
+
+## Install (CLI, to fix locally)
 
 ```bash
 pipx install git+https://github.com/Blackman99/actnode
@@ -29,13 +48,6 @@ $ actnode --repo owner/name   # API scan, no clone
 ![demo](site/demo.gif)
 
 It reads each action's real `action.yml` at the exact ref you pin, follows composite actions and reusable workflows, and suggests the **smallest** major bump that runs on Node 24. Scan a remote repo without cloning: `actnode --repo owner/name` (or `--org owner`).
-
-### In CI
-
-```yaml
-- uses: actions/checkout@v7
-- uses: Blackman99/actnode@v0.2.0   # job summary table; fails if an old-runtime action sneaks back
-```
 
 Full docs: [install](https://blackman99.github.io/actnode/docs/install/) · [usage](https://blackman99.github.io/actnode/docs/usage/) · [Action](https://blackman99.github.io/actnode/docs/action/) · [reference](https://blackman99.github.io/actnode/docs/reference/) · [FAQ](https://blackman99.github.io/actnode/docs/faq/)
 

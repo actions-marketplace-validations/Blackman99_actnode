@@ -7,7 +7,7 @@ It runs node20 actions on Node 24 today, but the deprecation annotation still fi
 Dependabot opens version bumps if it's configured for `github-actions`, one PR per action, and doesn't tell you which ones are about the runtime or which are hidden inside composite actions. actnode answers the runtime question across the whole repo in one run, and works where Dependabot isn't set up.
 
 **Why the smallest major and not the latest?**
-Fewer breaking changes. `actions/checkout@v5` already runs on Node 24; you don't need to jump to v7 to clear the warning. Pick the latest on your own schedule.
+Fewer breaking changes. `actions/checkout@v5` already runs on Node 24; you don't need to jump to v7 to clear the warning. Pass `--latest` (or Action input `latest: true`) when you *do* want the newest node24-capable release.
 
 **An action has no Node 24 release. Now what?**
 actnode reports it as `OLD` with "no release on node24 yet". Look for an open issue upstream (many exist: search "Node.js 24" in that repo), fork and change `runs.using`, or replace the action.
@@ -23,3 +23,6 @@ Yes: `actnode --repo owner/name` or `actnode --org owner`. Org mode scans public
 
 **Where are tags cached?**
 Under `~/.cache/actnode` (or `$XDG_CACHE_HOME/actnode`), 24h TTL. Use `--no-cache` to bypass.
+
+**Where do release-notes links come from?**
+Each suggested bump includes a `release_notes` URL pointing at `https://github.com/{owner}/{repo}/releases/tag/{tag}` for the suggested tag. Shown in text, Markdown, and JSON output.

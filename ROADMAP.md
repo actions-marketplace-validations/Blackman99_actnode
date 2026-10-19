@@ -11,7 +11,7 @@
 - Org/repo mode: `actnode --repo owner/name` and `--org owner` without cloning (API only)
 - Cache tag lookups across runs (`~/.cache/actnode`)
 
-## v0.3 — ergonomics
+## v0.3 (2026-10-19) — shipped
 - `--latest` to suggest the newest node24 release instead of the smallest jump
 - Show release-notes links for each major bump
 - Optional PR mode for the Action (open a PR with the `--fix` diff)

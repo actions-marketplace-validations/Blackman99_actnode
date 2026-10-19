@@ -26,6 +26,8 @@ def render_text(findings, target):
         where = f"{f.file}:{f.line}"
         rt = f.runtime or "-"
         extra = f"-> {f.suggest}" if f.suggest else f.note
+        if f.release_notes:
+            extra = f"{extra}  notes: {f.release_notes}" if extra else f"notes: {f.release_notes}"
         via = f"   (inside {f.via})" if f.via else ""
         rows.append(f"[{MARK.get(f.status, f.status)}] {where:<34} {rt:<10} {f.uses}  {extra}{via}")
     old = [f for f in findings if f.status in ("old", "no-fix")]
@@ -44,11 +46,15 @@ def render_md(findings, target):
     if not old:
         out.append(f"All JavaScript actions run on node{target} or newer.")
         return "\n".join(out) + "\n"
-    out += ["| Where | Action | Runtime | Upgrade to |", "|---|---|---|---|"]
+    out += [
+        "| Where | Action | Runtime | Upgrade to | Release notes |",
+        "|---|---|---|---|---|",
+    ]
     for f in old:
         up = f"`{f.suggest}`" if f.suggest else f.note
         via = f" (via `{f.via}`)" if f.via else ""
-        out.append(f"| `{f.file}:{f.line}` | `{f.uses}`{via} | {f.runtime} | {up} |")
+        notes = f"[notes]({f.release_notes})" if f.release_notes else ""
+        out.append(f"| `{f.file}:{f.line}` | `{f.uses}`{via} | {f.runtime} | {up} | {notes} |")
     return "\n".join(out) + "\n"
 
 
@@ -74,6 +80,11 @@ def _add_scan_flags(s):
     s.add_argument("--format", choices=["text", "json", "md"], default="text")
     s.add_argument("-o", "--output", help="write report to this file (appends for md)")
     s.add_argument("--fix", action="store_true", help="rewrite uses: lines to the suggested refs")
+    s.add_argument(
+        "--latest",
+        action="store_true",
+        help="suggest the newest release already on the target Node instead of the smallest major jump",
+    )
     s.add_argument("--fail", action="store_true", help="exit 1 if any step runs an old Node action")
     s.add_argument("--all", action="store_true", help="show every step, not only problems")
     s.add_argument("--no-cache", action="store_true", help="skip disk tag cache (~/.cache/actnode)")
@@ -112,7 +123,7 @@ def main(argv=None):
         print("actnode: --fix requires a local checkout; cannot rewrite remote scans", file=sys.stderr)
         return 2
 
-    resolver = Resolver(use_cache=not a.no_cache)
+    resolver = Resolver(use_cache=not a.no_cache, latest=a.latest)
     try:
         if a.repo:
             if "/" not in a.repo or a.repo.count("/") != 1:

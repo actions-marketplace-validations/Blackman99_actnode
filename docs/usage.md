@@ -32,6 +32,20 @@ Findings are labeled `owner/repo:.github/workflows/ci.yml`. Forks and archived r
 
 `PATH`, `--repo`, and `--org` are mutually exclusive.
 
+## Latest vs smallest jump
+
+By default actnode suggests the **smallest major** that already runs on Node 24 (fewer breaking changes). Pass `--latest` to jump straight to the newest release that is already on the target Node:
+
+```bash
+actnode                 # -> actions/checkout@v5   (smallest jump)
+actnode --latest        # -> actions/checkout@v7   (newest on node24)
+actnode --latest --fix
+```
+
+## Release notes
+
+Every finding with a suggested bump includes a `release_notes` URL (GitHub releases page for that tag). Text mode prints `notes: https://…`; Markdown adds a **Release notes** column; JSON adds a `release_notes` field.
+
 ## Fix
 
 ```bash

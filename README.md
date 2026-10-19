@@ -21,10 +21,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: Blackman99/actnode@v0
         with:
-          fail: true      # inputs: path (.), target (24), fail (true), token (github.token)
+          fail: true      # also: path, target, latest, create-pr, pr-branch, pr-title, token
 ```
 
-`@v0` is a moving major tag that always points at the latest v0.x release; pin `@v0.2.0` or a SHA if you prefer.
+`@v0` is a moving major tag that always points at the latest v0.x release; pin `@v0.3.0` or a SHA if you prefer.
+
+To open a PR with the `--fix` diff on a schedule, set `create-pr: true` and grant `contents: write` + `pull-requests: write` (see [Action docs](https://blackman99.github.io/actnode/docs/action/)).
 
 ## Install (CLI, to fix locally)
 
@@ -38,8 +40,9 @@ Python 3.9+, zero dependencies. Set `GITHUB_TOKEN` (e.g. `export GITHUB_TOKEN=$(
 
 ```console
 $ actnode
-[OLD] .github/workflows/ci.yml:7    node20  actions/checkout@v4         -> actions/checkout@v5
-[OLD] .github/workflows/ci.yml:10   node20  actions/upload-artifact@v4  -> actions/upload-artifact@v6
+[OLD] .github/workflows/ci.yml:7    node20  actions/checkout@v4         -> actions/checkout@v5  notes: https://github.com/actions/checkout/releases/tag/v5
+[OLD] .github/workflows/ci.yml:10   node20  actions/upload-artifact@v4  -> actions/upload-artifact@v6  notes: https://github.com/actions/upload-artifact/releases/tag/v6
+$ actnode --latest   # newest node24 release instead of the smallest major jump
 $ actnode --fix      # rewrite those uses: lines (SHA pins get a SHA + version comment)
 $ actnode --fail     # exit 1 if anything is still old
 $ actnode --repo owner/name   # API scan, no clone
@@ -47,7 +50,7 @@ $ actnode --repo owner/name   # API scan, no clone
 
 ![demo](site/demo.gif)
 
-It reads each action's real `action.yml` at the exact ref you pin, follows composite actions and reusable workflows, and suggests the **smallest** major bump that runs on Node 24. Scan a remote repo without cloning: `actnode --repo owner/name` (or `--org owner`).
+It reads each action's real `action.yml` at the exact ref you pin, follows composite actions and reusable workflows, and suggests the **smallest** major bump that runs on Node 24 (or `--latest` for the newest). Each suggestion includes a release-notes link. Scan a remote repo without cloning: `actnode --repo owner/name` (or `--org owner`).
 
 Full docs: [install](https://blackman99.github.io/actnode/docs/install/) · [usage](https://blackman99.github.io/actnode/docs/usage/) · [Action](https://blackman99.github.io/actnode/docs/action/) · [reference](https://blackman99.github.io/actnode/docs/reference/) · [FAQ](https://blackman99.github.io/actnode/docs/faq/)
 

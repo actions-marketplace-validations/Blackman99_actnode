@@ -102,6 +102,26 @@ def _ver(tag: str):
     return tuple(int(x) if x else -1 for x in m.groups())
 
 
+def release_notes_url(suggest: str) -> Optional[str]:
+    """GitHub releases page for the tag in a suggest ref (e.g. owner/repo@v5 → …/releases/tag/v5)."""
+    if not suggest:
+        return None
+    ref_part, _, comment = suggest.partition(" # ")
+    tag = comment.strip() if comment.strip() else None
+    if "@" not in ref_part:
+        return None
+    spec, _, at = ref_part.rpartition("@")
+    parts = spec.split("/")
+    if len(parts) < 2:
+        return None
+    owner, repo = parts[0], parts[1]
+    if tag is None:
+        tag = at
+    if not tag or SHA_RE.match(tag):
+        return None
+    return f"https://github.com/{owner}/{repo}/releases/tag/{tag}"
+
+
 @dataclass
 class Finding:
     file: str
@@ -112,6 +132,7 @@ class Finding:
     suggest: Optional[str] = None
     via: Optional[str] = None  # composite/reusable workflow that pulled this in
     note: str = ""
+    release_notes: Optional[str] = None  # GitHub releases URL for the suggested tag
 
     def to_dict(self):
         return asdict(self)
@@ -123,6 +144,7 @@ class Resolver:
     use_cache: bool = True
     cache_path: Optional[Path] = None  # override for tests; default cache_dir()
     cache_ttl: int = DEFAULT_CACHE_TTL
+    latest: bool = False  # True → newest node{target} release; False → smallest major jump
     _yml: dict = field(default_factory=dict)
     _tags: dict = field(default_factory=dict)
     _wf: dict = field(default_factory=dict)
@@ -214,7 +236,11 @@ class Resolver:
             pass
 
     def suggest(self, owner, repo, sub, ref, target=CURRENT) -> Optional[str]:
-        """Smallest-surprise replacement ref whose action runs on node>=target, in the same ref style."""
+        """Replacement ref whose action runs on node>=target, in the same ref style.
+
+        Default (latest=False): smallest major jump that is already on target Node.
+        With self.latest=True: newest release that already runs on target Node.
+        """
         tags = self.tags(owner, repo)
         if not tags:
             return None
@@ -225,7 +251,7 @@ class Resolver:
                 majors.append(mj)
         cur = _ver(ref)[0] if _ver(ref) else None
         best = None
-        for mj in majors[:6]:  # newest majors first; keep the smallest jump that is still new enough
+        for mj in majors[:6]:  # newest majors first
             if cur is not None and mj < cur:
                 break
             in_major = [(n, s) for n, s in tags if _ver(n)[0] == mj]
@@ -239,6 +265,8 @@ class Resolver:
                     break
                 continue
             best = (mj, in_major, newest_name, newest_sha)
+            if self.latest:
+                break  # first match is the newest target-Node major
         if not best:
             return None
         mj, in_major, newest_name, newest_sha = best
@@ -473,7 +501,10 @@ def _classify(root, rel, line, ref, y, parts, r, target, depth, via):
             st = "old" if sug else "no-fix"
             note = "" if sug else ("local action: bump runs.using" if not parts
                                    else f"no release on node{target} yet; ask upstream or fork")
-            out.append(Finding(rel, line, ref, using, st, suggest=sug, via=via, note=note))
+            rn = release_notes_url(sug) if sug else None
+            out.append(Finding(
+                rel, line, ref, using, st, suggest=sug, via=via, note=note, release_notes=rn,
+            ))
     elif using == "composite":
         out.append(Finding(rel, line, ref, using, "composite", via=via))
         if depth > 0:

@@ -10,6 +10,7 @@ from actnode.core import (
     list_remote_workflows,
     node_major,
     parse_using,
+    release_notes_url,
     scan,
     scan_org,
     scan_repo,
@@ -129,7 +130,9 @@ def test_scan_classifies(tmp_path):
     fs = scan(repo(tmp_path), Resolver(fetch=fake, use_cache=False))
     by = {(f.uses, f.via): f for f in fs}
     assert by[("acme/js@v4", None)].suggest == "acme/js@v5"  # smallest jump that is on node24
+    assert by[("acme/js@v4", None)].release_notes == "https://github.com/acme/js/releases/tag/v5"
     assert by[("acme/js@" + "a" * 40, None)].suggest == f"acme/js@{SHA5} # v5.2.0"
+    assert by[("acme/js@" + "a" * 40, None)].release_notes == "https://github.com/acme/js/releases/tag/v5.2.0"
     assert by[("acme/new@v2", None)].status == "ok"
     assert by[("acme/stuck@v1", None)].status == "no-fix"
     assert by[("acme/comp@v1", None)].status == "composite"
@@ -295,11 +298,12 @@ def test_cli_json_and_fail(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(core, "http_get", fake)
 
-    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400):
+    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400, latest=False):
         self.fetch = fake
         self.use_cache = False
         self.cache_path = cache_path
         self.cache_ttl = cache_ttl
+        self.latest = latest
         self._yml = {}
         self._tags = {}
         self._wf = {}
@@ -321,11 +325,12 @@ def test_cli_repo_and_fix_refused(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(core, "http_get", fake)
 
-    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400):
+    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400, latest=False):
         self.fetch = fake
         self.use_cache = False
         self.cache_path = cache_path
         self.cache_ttl = cache_ttl
+        self.latest = latest
         self._yml = {}
         self._tags = {}
         self._wf = {}
@@ -339,3 +344,85 @@ def test_cli_repo_and_fix_refused(tmp_path, monkeypatch, capsys):
     assert "local checkout" in err
     assert main(["--repo", "org/demo", "--org", "org"]) == 2
     assert main([".", "--repo", "org/demo"]) == 2
+
+
+def test_release_notes_url():
+    assert release_notes_url("acme/js@v5") == "https://github.com/acme/js/releases/tag/v5"
+    assert release_notes_url("acme/js/sub@v5.2.0") == "https://github.com/acme/js/releases/tag/v5.2.0"
+    assert release_notes_url(f"acme/js@{'a'*40} # v5.2.0") == "https://github.com/acme/js/releases/tag/v5.2.0"
+    assert release_notes_url(f"acme/js@{'a'*40}") is None
+    assert release_notes_url("") is None
+
+
+def test_suggest_latest(tmp_path):
+    """Default = smallest jump (v5); --latest / Resolver.latest = newest (v6)."""
+    r = repo(tmp_path)
+    fs = scan(r, Resolver(fetch=fake, use_cache=False, latest=False))
+    by = {(f.uses, f.via): f for f in fs}
+    assert by[("acme/js@v4", None)].suggest == "acme/js@v5"
+    fs_latest = scan(r, Resolver(fetch=fake, use_cache=False, latest=True))
+    by_l = {(f.uses, f.via): f for f in fs_latest}
+    assert by_l[("acme/js@v4", None)].suggest == "acme/js@v6"
+    assert by_l[("acme/js@v4", None)].release_notes == "https://github.com/acme/js/releases/tag/v6"
+    assert by_l[("acme/js@" + "a" * 40, None)].suggest == f"acme/js@{'c'*40} # v6.0.0"
+
+
+def test_cli_latest(tmp_path, monkeypatch, capsys):
+    import actnode.core as core
+
+    monkeypatch.setattr(core, "http_get", fake)
+
+    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400, latest=False):
+        self.fetch = fake
+        self.use_cache = False
+        self.cache_path = cache_path
+        self.cache_ttl = cache_ttl
+        self.latest = latest
+        self._yml = {}
+        self._tags = {}
+        self._wf = {}
+
+    monkeypatch.setattr(core.Resolver, "__init__", fake_init)
+    r = repo(tmp_path)
+    assert main(["scan", str(r), "--format", "json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    js = next(f for f in data["findings"] if f["uses"] == "acme/js@v4" and not f.get("via"))
+    assert js["suggest"] == "acme/js@v5"
+    assert js["release_notes"] == "https://github.com/acme/js/releases/tag/v5"
+
+    assert main(["scan", str(r), "--latest", "--format", "json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    js = next(f for f in data["findings"] if f["uses"] == "acme/js@v4" and not f.get("via"))
+    assert js["suggest"] == "acme/js@v6"
+    assert js["release_notes"] == "https://github.com/acme/js/releases/tag/v6"
+
+    out = tmp_path / "notes.md"
+    main([str(r), "--format", "md", "-o", str(out)])
+    md = out.read_text()
+    assert "Release notes" in md
+    assert "https://github.com/acme/js/releases/tag/v5" in md
+
+
+def test_pr_body_helper(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path as P
+
+    report = tmp_path / "r.json"
+    report.write_text(json.dumps({
+        "target": 24,
+        "findings": [{
+            "file": ".github/workflows/ci.yml", "line": 7, "uses": "acme/js@v4",
+            "runtime": "node20", "status": "old", "suggest": "acme/js@v5",
+            "via": None, "note": "",
+            "release_notes": "https://github.com/acme/js/releases/tag/v5",
+        }],
+    }), encoding="utf-8")
+    root = P(__file__).resolve().parents[1]
+    body = subprocess.check_output(
+        [sys.executable, str(root / "pr_body.py"), str(report), "24"],
+        text=True,
+    )
+    assert "Release notes" in body
+    assert "acme/js@v5" in body
+    assert "https://github.com/acme/js/releases/tag/v5" in body

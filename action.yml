@@ -1,5 +1,5 @@
 name: "actnode Node 24 runtime audit"
-description: "Find workflow steps whose actions still run on Node 20 or older, and the release that moves each one to Node 24."
+description: "Find workflow steps whose actions still run on Node 20 or older, suggest (or PR) the release that moves each one to Node 24."
 author: "Blackman99"
 branding:
   icon: "arrow-up-right"
@@ -14,13 +14,31 @@ inputs:
   fail:
     description: "Fail the step when an old-runtime action is found (true/false)"
     default: "true"
+  latest:
+    description: "Suggest the newest release already on the target Node instead of the smallest major jump (true/false)"
+    default: "false"
+  create-pr:
+    description: "Apply --fix and open (or update) a pull request when there is a diff (true/false). Caller needs contents:write and pull-requests:write. Set fail: false too, or the job still fails after opening the PR."
+    default: "false"
+  pr-branch:
+    description: "Branch name for create-pr"
+    default: "actnode/node-runtime"
+  pr-title:
+    description: "Pull request title for create-pr"
+    default: "chore: bump actions to Node 24 runtime"
   token:
-    description: "Token used to list tags of the actions you use"
+    description: "Token used to list tags (and to push/open a PR when create-pr is true)"
     default: ${{ github.token }}
 outputs:
   report:
     description: "Path to the JSON report"
     value: ${{ steps.scan.outputs.report }}
+  pr-number:
+    description: "Number of the opened/updated PR when create-pr ran; empty otherwise"
+    value: ${{ steps.pr.outputs.pr-number }}
+  pr-url:
+    description: "URL of the opened/updated PR when create-pr ran; empty otherwise"
+    value: ${{ steps.pr.outputs.pr-url }}
 runs:
   using: composite
   steps:
@@ -33,10 +51,78 @@ runs:
         IN_PATH: ${{ inputs.path }}
         IN_TARGET: ${{ inputs.target }}
         IN_FAIL: ${{ inputs.fail }}
+        IN_LATEST: ${{ inputs.latest }}
+        IN_CREATE_PR: ${{ inputs.create-pr }}
       run: |
+        set -euo pipefail
         out="$RUNNER_TEMP/actnode.json"
-        python3 -m actnode scan "$IN_PATH" --target "$IN_TARGET" --format json -o "$out"
+        latest=()
+        [ "$IN_LATEST" = "true" ] && latest=(--latest)
+        python3 -m actnode scan "$IN_PATH" --target "$IN_TARGET" --format json -o "$out" "${latest[@]}"
         echo "report=$out" >> "$GITHUB_OUTPUT"
-        fail=()
-        [ "$IN_FAIL" = "true" ] && fail=(--fail)
-        python3 -m actnode scan "$IN_PATH" --target "$IN_TARGET" --format md -o "$GITHUB_STEP_SUMMARY" "${fail[@]}"
+        python3 -m actnode scan "$IN_PATH" --target "$IN_TARGET" --format md -o "$GITHUB_STEP_SUMMARY" "${latest[@]}"
+        if [ "$IN_CREATE_PR" = "true" ]; then
+          python3 -m actnode scan "$IN_PATH" --target "$IN_TARGET" --fix "${latest[@]}"
+        elif [ "$IN_FAIL" = "true" ]; then
+          python3 -m actnode scan "$IN_PATH" --target "$IN_TARGET" --fail "${latest[@]}" >/dev/null
+        fi
+    - id: pr
+      if: inputs.create-pr == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+        IN_PATH: ${{ inputs.path }}
+        IN_TARGET: ${{ inputs.target }}
+        IN_PR_BRANCH: ${{ inputs.pr-branch }}
+        IN_PR_TITLE: ${{ inputs.pr-title }}
+        IN_FAIL: ${{ inputs.fail }}
+      run: |
+        set -euo pipefail
+        git_root="${GITHUB_WORKSPACE:-.}"
+        if [ -d "${IN_PATH}/.git" ]; then
+          git_root="$IN_PATH"
+        fi
+        cd "$git_root"
+        paths=()
+        [ -d .github/workflows ] && paths+=(.github/workflows)
+        [ -f action.yml ] && paths+=(action.yml)
+        [ -f action.yaml ] && paths+=(action.yaml)
+        if [ ${#paths[@]} -eq 0 ] || git diff --quiet -- "${paths[@]}"; then
+          echo "actnode: no workflow changes to propose"
+          echo "pr-number=" >> "$GITHUB_OUTPUT"
+          echo "pr-url=" >> "$GITHUB_OUTPUT"
+        else
+          branch="$IN_PR_BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add -- "${paths[@]}"
+          if git diff --cached --quiet; then
+            echo "actnode: nothing staged for PR"
+            echo "pr-number=" >> "$GITHUB_OUTPUT"
+            echo "pr-url=" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "chore: bump GitHub Actions to Node ${IN_TARGET} runtime"
+            bash "${{ github.action_path }}/scripts/push_pr_branch.sh" "$branch"
+            body_file="$RUNNER_TEMP/actnode-pr-body.md"
+            python3 "${{ github.action_path }}/pr_body.py" \
+              "$RUNNER_TEMP/actnode.json" "$IN_TARGET" > "$body_file"
+            existing_json=$(gh pr list --head "$branch" --state open --json number,url 2>/dev/null || echo "[]")
+            num=$(printf '%s' "$existing_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['number'] if d else '')")
+            url=$(printf '%s' "$existing_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['url'] if d else '')")
+            if [ -n "$num" ]; then
+              gh pr edit "$num" --title "$IN_PR_TITLE" --body-file "$body_file" || true
+              echo "Updated PR #$num"
+            else
+              url=$(gh pr create --title "$IN_PR_TITLE" --body-file "$body_file" --head "$branch")
+              num=$(gh pr view "$branch" --json number --jq .number)
+              echo "Opened PR #$num → $url"
+            fi
+            echo "pr-number=$num" >> "$GITHUB_OUTPUT"
+            echo "pr-url=$url" >> "$GITHUB_OUTPUT"
+          fi
+        fi
+        if [ "$IN_FAIL" = "true" ]; then
+          REPORT="$RUNNER_TEMP/actnode.json" python3 -c 'import json,os,pathlib,sys; data=json.loads(pathlib.Path(os.environ["REPORT"]).read_text(encoding="utf-8")); sys.exit(1 if any(f.get("status") in ("old","no-fix") for f in data.get("findings",[])) else 0)'
+        fi

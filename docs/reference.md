@@ -3,7 +3,7 @@
 ```
 actnode [scan] [PATH] [--repo OWNER/NAME] [--org OWNER]
         [--target N] [--format text|json|md] [-o FILE]
-        [--fix] [--fail] [--all] [--no-cache]
+        [--fix] [--latest] [--fail] [--all] [--no-cache]
 actnode demo
 actnode --version
 ```
@@ -17,6 +17,7 @@ actnode --version
 | `--format` | `text` (default), `json` (every finding), `md` (problem table, for job summaries) |
 | `-o FILE` | write to a file; `md` appends (so it works with `$GITHUB_STEP_SUMMARY`) |
 | `--fix` | rewrite direct `uses:` lines to the suggested ref (local PATH only) |
+| `--latest` | suggest the newest release already on the target Node (default: smallest major jump) |
 | `--fail` | exit code 1 if any step uses an older runtime |
 | `--all` | in text mode, also show `ok`, composite, workflow and docker steps |
 | `--no-cache` | skip the on-disk tag cache (`~/.cache/actnode` / `$XDG_CACHE_HOME/actnode`) |
@@ -40,7 +41,8 @@ Exit codes: `0` ok, `1` old runtime found with `--fail`, `2` usage error or GitH
 ```json
 {"target": 24, "findings": [
   {"file": ".github/workflows/ci.yml", "line": 7, "uses": "actions/checkout@v4",
-   "runtime": "node20", "status": "old", "suggest": "actions/checkout@v5", "via": null, "note": ""}
+   "runtime": "node20", "status": "old", "suggest": "actions/checkout@v5", "via": null, "note": "",
+   "release_notes": "https://github.com/actions/checkout/releases/tag/v5"}
 ]}
 ```
 

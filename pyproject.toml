@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "actnode"
-version = "0.2.0"
+version = "0.3.0"
 description = "Find GitHub Actions steps still running on Node 20 (or older) and the release that moves each one to Node 24; optionally rewrite them."
 readme = "README.md"
 requires-python = ">=3.9"

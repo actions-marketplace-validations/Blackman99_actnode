@@ -298,15 +298,18 @@ def test_cli_json_and_fail(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(core, "http_get", fake)
 
-    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400, latest=False):
+    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400, latest=False, upstream=True):
         self.fetch = fake
         self.use_cache = False
         self.cache_path = cache_path
         self.cache_ttl = cache_ttl
         self.latest = latest
+        self.upstream = upstream
         self._yml = {}
         self._tags = {}
         self._wf = {}
+        self._issues = {}
+        self._archived = {}
 
     monkeypatch.setattr(core.Resolver, "__init__", fake_init)
     r = repo(tmp_path)
@@ -325,15 +328,18 @@ def test_cli_repo_and_fix_refused(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(core, "http_get", fake)
 
-    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400, latest=False):
+    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400, latest=False, upstream=True):
         self.fetch = fake
         self.use_cache = False
         self.cache_path = cache_path
         self.cache_ttl = cache_ttl
         self.latest = latest
+        self.upstream = upstream
         self._yml = {}
         self._tags = {}
         self._wf = {}
+        self._issues = {}
+        self._archived = {}
 
     monkeypatch.setattr(core.Resolver, "__init__", fake_init)
     assert main(["--repo", "org/demo", "--format", "json"]) == 0
@@ -372,15 +378,18 @@ def test_cli_latest(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(core, "http_get", fake)
 
-    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400, latest=False):
+    def fake_init(self, fetch=None, use_cache=True, cache_path=None, cache_ttl=86400, latest=False, upstream=True):
         self.fetch = fake
         self.use_cache = False
         self.cache_path = cache_path
         self.cache_ttl = cache_ttl
         self.latest = latest
+        self.upstream = upstream
         self._yml = {}
         self._tags = {}
         self._wf = {}
+        self._issues = {}
+        self._archived = {}
 
     monkeypatch.setattr(core.Resolver, "__init__", fake_init)
     r = repo(tmp_path)
@@ -426,3 +435,99 @@ def test_pr_body_helper(tmp_path):
     assert "Release notes" in body
     assert "acme/js@v5" in body
     assert "https://github.com/acme/js/releases/tag/v5" in body
+
+
+def _stuck_repo(tmp_path, ref="acme/stuck@v1"):
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    (wf / "ci.yml").write_text(f"jobs:\n  t:\n    steps:\n      - uses: {ref}\n")
+    return tmp_path
+
+
+def _search_fetch(items, archived=False):
+    def fetch(url):
+        if url.startswith("https://api.github.com/search/issues"):
+            assert "repo%3Aacme/stuck%20" in url
+            return json.dumps({"items": items})
+        if url == "https://api.github.com/repos/acme/stuck":
+            return json.dumps({"archived": archived})
+        if url.startswith(API + "acme/stuck/tags"):
+            return json.dumps([{"name": "v1.0.0", "commit": {"sha": "c" * 40}},
+                               {"name": "v1", "commit": {"sha": "c" * 40}}])
+        if url.startswith(RAW + "acme/stuck/"):
+            return node(16) if url.endswith("action.yml") else None
+        return None
+    return fetch
+
+
+def test_upstream_issue_linked(tmp_path):
+    items = [
+        {"title": "Bump @types/node to 24", "html_url": "u0", "state": "open", "number": 9, "comments": 50},
+        {"title": "Move to Node.js 24", "html_url": "https://github.com/acme/stuck/issues/3",
+         "state": "closed", "number": 3, "comments": 9},
+        {"title": "Support node24 runtime", "html_url": "https://github.com/acme/stuck/pull/7",
+         "state": "open", "number": 7, "comments": 1, "pull_request": {}},
+    ]
+    fs = scan(_stuck_repo(tmp_path), Resolver(fetch=_search_fetch(items), use_cache=False))
+    f = [x for x in fs if x.uses == "acme/stuck@v1"][0]
+    assert f.status == "no-fix"
+    # "@types/node to 24" doesn't match; open beats more-commented closed
+    assert f.upstream_issue["number"] == 7 and f.upstream_issue["kind"] == "pr"
+    assert "upstream pr #7 (open)" in f.note
+
+
+def test_upstream_issue_none_and_disabled(tmp_path):
+    root = _stuck_repo(tmp_path)
+    f = scan(root, Resolver(fetch=_search_fetch([]), use_cache=False))[0]
+    assert f.upstream_issue is None and "ask upstream or fork" in f.note
+    calls = []
+    base = _search_fetch([{"title": "node 24", "html_url": "x", "state": "open", "number": 1}])
+    def spy(url):
+        calls.append(url)
+        return base(url)
+    f = scan(root, Resolver(fetch=spy, use_cache=False, upstream=False))[0]
+    assert f.upstream_issue is None and not any("search/issues" in c for c in calls)
+
+
+def test_upstream_archived(tmp_path):
+    f = scan(_stuck_repo(tmp_path), Resolver(fetch=_search_fetch([], archived=True), use_cache=False))[0]
+    assert f.upstream_issue is None and "archived" in f.note
+
+
+def test_upstream_rate_limit_is_quiet(tmp_path):
+    base = _search_fetch([])
+    def fetch(url):
+        if "search/issues" in url:
+            raise RuntimeError("GitHub rate limit hit")
+        return base(url)
+    f = scan(_stuck_repo(tmp_path), Resolver(fetch=fetch, use_cache=False))[0]
+    assert f.status == "no-fix" and f.upstream_issue is None
+
+
+def test_upstream_issue_cached(tmp_path):
+    items = [{"title": "node24 please", "html_url": "h", "state": "open", "number": 2}]
+    root = _stuck_repo(tmp_path / "r")
+    cache = tmp_path / "cache"
+    scan(root, Resolver(fetch=_search_fetch(items), cache_path=cache))
+    def no_search(url):
+        assert "search/issues" not in url
+        return _search_fetch([])(url)
+    f = scan(root, Resolver(fetch=no_search, cache_path=cache))[0]
+    assert f.upstream_issue["number"] == 2
+
+
+def test_cli_md_shows_upstream_link(tmp_path, monkeypatch, capsys):
+    from actnode import core
+    items = [{"title": "Node 24 support", "html_url": "https://github.com/acme/stuck/issues/4",
+              "state": "open", "number": 4}]
+    orig = core.Resolver.__init__
+    def init(self, *a, **k):
+        orig(self, *a, **k)
+        self.fetch = _search_fetch(items)
+        self.use_cache = False
+    monkeypatch.setattr(core.Resolver, "__init__", init)
+    root = _stuck_repo(tmp_path)
+    assert main([str(root), "--format", "md"]) == 0
+    assert "[#4](https://github.com/acme/stuck/issues/4) (open)" in capsys.readouterr().out
+    assert main([str(root)]) == 0
+    assert "https://github.com/acme/stuck/issues/4" in capsys.readouterr().out

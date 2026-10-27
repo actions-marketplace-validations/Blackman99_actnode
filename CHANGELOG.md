@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Actions with no node24 release now link the upstream issue or PR tracking the bump (open first, then most discussed) in text, Markdown and JSON (`upstream_issue`); archived upstream repos are called out as "replace the action". `--no-upstream` skips the lookup; results are disk-cached like tags and a rate-limited search is skipped silently
+
 ## v0.3.0 — 2026-10-19
 - `--latest` (Action input `latest`): suggest the newest node24-capable release instead of the smallest major jump; default behavior unchanged
 - Release-notes links on every suggested bump (`release_notes` in JSON; text `notes:` URL; Markdown column)

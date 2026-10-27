@@ -10,7 +10,7 @@ Dependabot opens version bumps if it's configured for `github-actions`, one PR p
 Fewer breaking changes. `actions/checkout@v5` already runs on Node 24; you don't need to jump to v7 to clear the warning. Pass `--latest` (or Action input `latest: true`) when you *do* want the newest node24-capable release.
 
 **An action has no Node 24 release. Now what?**
-actnode reports it as `OLD` with "no release on node24 yet". Look for an open issue upstream (many exist: search "Node.js 24" in that repo), fork and change `runs.using`, or replace the action.
+actnode reports it as `OLD` with "no release on node24 yet" and links the upstream issue or PR that tracks the bump, with its state, so you can subscribe to it instead of searching. If the action's repository is archived, it says so: nothing will ship, so replace the action or fork it and change `runs.using`. Pass `--no-upstream` to skip these lookups.
 
 **Does it work with private actions?**
 Actions in private repos need a token that can read them (`GITHUB_TOKEN`). Local `./` actions are read from disk.

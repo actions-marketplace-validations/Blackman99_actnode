@@ -26,6 +26,8 @@ def render_text(findings, target):
         where = f"{f.file}:{f.line}"
         rt = f.runtime or "-"
         extra = f"-> {f.suggest}" if f.suggest else f.note
+        if f.upstream_issue and f.upstream_issue.get("url"):
+            extra = f"{extra}  {f.upstream_issue['url']}"
         if f.release_notes:
             extra = f"{extra}  notes: {f.release_notes}" if extra else f"notes: {f.release_notes}"
         via = f"   (inside {f.via})" if f.via else ""
@@ -52,6 +54,9 @@ def render_md(findings, target):
     ]
     for f in old:
         up = f"`{f.suggest}`" if f.suggest else f.note
+        ui = f.upstream_issue
+        if not f.suggest and ui and ui.get("url"):
+            up = f"no node{target} release yet; upstream [#{ui['number']}]({ui['url']}) ({ui['state']})"
         via = f" (via `{f.via}`)" if f.via else ""
         notes = f"[notes]({f.release_notes})" if f.release_notes else ""
         out.append(f"| `{f.file}:{f.line}` | `{f.uses}`{via} | {f.runtime} | {up} | {notes} |")
@@ -87,6 +92,11 @@ def _add_scan_flags(s):
     )
     s.add_argument("--fail", action="store_true", help="exit 1 if any step runs an old Node action")
     s.add_argument("--all", action="store_true", help="show every step, not only problems")
+    s.add_argument(
+        "--no-upstream",
+        action="store_true",
+        help="don't search upstream for an issue/PR when an action has no target-Node release",
+    )
     s.add_argument("--no-cache", action="store_true", help="skip disk tag cache (~/.cache/actnode)")
 
 
@@ -123,7 +133,7 @@ def main(argv=None):
         print("actnode: --fix requires a local checkout; cannot rewrite remote scans", file=sys.stderr)
         return 2
 
-    resolver = Resolver(use_cache=not a.no_cache, latest=a.latest)
+    resolver = Resolver(use_cache=not a.no_cache, latest=a.latest, upstream=not a.no_upstream)
     try:
         if a.repo:
             if "/" not in a.repo or a.repo.count("/") != 1:

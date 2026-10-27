@@ -6,6 +6,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -122,6 +123,23 @@ def release_notes_url(suggest: str) -> Optional[str]:
     return f"https://github.com/{owner}/{repo}/releases/tag/{tag}"
 
 
+def _pick_issue(items, target=CURRENT) -> Optional[dict]:
+    """Choose the best search hit: title must mention node{target}; open first, then most comments."""
+    pat = re.compile(rf"node(?:\.?js)?[\s-]*{target}\b", re.I)
+    cands = [i for i in items if isinstance(i, dict) and pat.search(i.get("title") or "")]
+    if not cands:
+        return None
+    cands.sort(key=lambda i: (i.get("state") == "open", i.get("comments") or 0), reverse=True)
+    i = cands[0]
+    return {
+        "url": i.get("html_url"),
+        "title": i.get("title"),
+        "state": i.get("state"),
+        "number": i.get("number"),
+        "kind": "pr" if "pull_request" in i else "issue",
+    }
+
+
 @dataclass
 class Finding:
     file: str
@@ -133,6 +151,7 @@ class Finding:
     via: Optional[str] = None  # composite/reusable workflow that pulled this in
     note: str = ""
     release_notes: Optional[str] = None  # GitHub releases URL for the suggested tag
+    upstream_issue: Optional[dict] = None  # {url, title, state, number} tracking the node bump upstream
 
     def to_dict(self):
         return asdict(self)
@@ -145,9 +164,12 @@ class Resolver:
     cache_path: Optional[Path] = None  # override for tests; default cache_dir()
     cache_ttl: int = DEFAULT_CACHE_TTL
     latest: bool = False  # True → newest node{target} release; False → smallest major jump
+    upstream: bool = True  # look up an upstream issue/PR for actions with no node{target} release
     _yml: dict = field(default_factory=dict)
     _tags: dict = field(default_factory=dict)
     _wf: dict = field(default_factory=dict)
+    _issues: dict = field(default_factory=dict)
+    _archived: dict = field(default_factory=dict)
 
     def _cache_root(self) -> Path:
         return self.cache_path if self.cache_path is not None else cache_dir()
@@ -234,6 +256,56 @@ class Resolver:
             path.write_text(json.dumps(payload), encoding="utf-8")
         except OSError:
             pass
+
+    def archived(self, owner, repo) -> bool:
+        """True if the action's repo is archived (read-only: no node bump will ever ship)."""
+        key = (owner, repo)
+        if key not in self._archived:
+            try:
+                body = self.fetch(f"https://api.github.com/repos/{owner}/{repo}")
+                self._archived[key] = bool(body and json.loads(body).get("archived"))
+            except (RuntimeError, OSError, ValueError, urllib.error.URLError, AttributeError):
+                self._archived[key] = False
+        return self._archived[key]
+
+    def upstream_issue(self, owner, repo, target=CURRENT) -> Optional[dict]:
+        """Find the upstream issue or PR tracking the move to node{target}.
+
+        One GitHub search per repo per run (disk-cached like tags). Prefers open items,
+        then the most-commented. Never raises: a failed lookup just returns None.
+        """
+        key = (owner, repo, target)
+        if key in self._issues:
+            return self._issues[key]
+        cache = self._cache_root() / "issues" / f"{owner}__{repo}__node{target}.json".replace("/", "_")
+        hit = None
+        found = False
+        if self.use_cache:
+            try:
+                data = json.loads(cache.read_text(encoding="utf-8"))
+                if time.time() - float(data.get("fetched_at", 0)) <= self.cache_ttl:
+                    hit, found = data.get("issue"), True
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                pass
+        if not found:
+            q = f'repo:{owner}/{repo} node{target} OR "node {target}" OR "node.js {target}" in:title'
+            url = ("https://api.github.com/search/issues?per_page=20&q="
+                   + urllib.parse.quote(q))
+            try:
+                body = self.fetch(url)
+                items = (json.loads(body).get("items") or []) if body else []
+            except (RuntimeError, OSError, ValueError, urllib.error.URLError):
+                self._issues[key] = None
+                return None  # rate-limited or offline: don't cache the miss
+            hit = _pick_issue(items, target)
+            if self.use_cache:
+                try:
+                    cache.parent.mkdir(parents=True, exist_ok=True)
+                    cache.write_text(json.dumps({"fetched_at": time.time(), "issue": hit}), encoding="utf-8")
+                except OSError:
+                    pass
+        self._issues[key] = hit
+        return hit
 
     def suggest(self, owner, repo, sub, ref, target=CURRENT) -> Optional[str]:
         """Replacement ref whose action runs on node>=target, in the same ref style.
@@ -502,8 +574,17 @@ def _classify(root, rel, line, ref, y, parts, r, target, depth, via):
             note = "" if sug else ("local action: bump runs.using" if not parts
                                    else f"no release on node{target} yet; ask upstream or fork")
             rn = release_notes_url(sug) if sug else None
+            up = None
+            if not sug and parts and r.upstream:
+                if r.archived(parts[0], parts[1]):
+                    note = f"no release on node{target}; upstream repo is archived, replace the action"
+                else:
+                    up = r.upstream_issue(parts[0], parts[1], target)
+                if up:
+                    note = f"no release on node{target} yet; upstream {up['kind']} #{up['number']} ({up['state']})"
             out.append(Finding(
                 rel, line, ref, using, st, suggest=sug, via=via, note=note, release_notes=rn,
+                upstream_issue=up,
             ))
     elif using == "composite":
         out.append(Finding(rel, line, ref, using, "composite", via=via))

@@ -13,7 +13,7 @@ What it scans: every file in `.github/workflows/*.yml|yaml`, plus a root `action
 |---|---|
 | `ok` | the action runs on node24 (or the `--target`) or newer |
 | `OLD` + `->` | runs on an older Node; a newer release on node24 exists, shown after `->` |
-| `OLD` + note | runs on an older Node and **no** release runs on node24 yet: open an issue upstream, fork, or replace it |
+| `OLD` + note | runs on an older Node and **no** release runs on node24 yet: the note links the upstream issue or PR tracking it (or says the repo is archived), so you can follow it, fork, or replace the action |
 | `cmp` | composite action; the steps inside are checked and shown with `(inside …)` |
 | `wfl` | reusable workflow; jobs/steps inside are checked recursively (same depth as composites) |
 | `dkr` | Docker action, not affected |

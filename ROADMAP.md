@@ -16,6 +16,8 @@
 - Show release-notes links for each major bump
 - Optional PR mode for the Action (open a PR with the `--fix` diff)
 
+## v0.4 — in progress
+- Track upstream "no node24 release yet" actions and link the upstream issue (done; archived repos flagged)
+
 ## Later
-- Track upstream "no node24 release yet" actions and link the upstream issue
 - Publish to PyPI

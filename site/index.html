@@ -74,10 +74,10 @@
       <pre><code>$ actnode
 [OLD] .github/workflows/ci.yml:7   node20  actions/checkout@v4       -> actions/checkout@v5
 [OLD] .github/workflows/ci.yml:9   node20  actions/cache@v4          -> actions/cache@v5
-[OLD] .github/workflows/ci.yml:11  node20  some-org/deploy@v2        no release on node24 yet
+[OLD] .github/workflows/ci.yml:11  node20  some-org/deploy@v2        no release on node24 yet; upstream issue #41 (open)  https://github.com/some-org/deploy/issues/41
 
 3 step(s) run an action older than node24; 2 have a newer release ready.</code></pre>
-      <p>It reads every <code>uses:</code> in your workflows and local actions, fetches each action's <code>action.yml</code> at that exact ref, follows composite actions and reusable workflows inside, and picks the <em>smallest</em> major jump that runs on Node 24. SHA pins get a SHA back. Or scan remote with <code>actnode --repo owner/name</code> — no clone.</p>
+      <p>It reads every <code>uses:</code> in your workflows and local actions, fetches each action's <code>action.yml</code> at that exact ref, follows composite actions and reusable workflows inside, and picks the <em>smallest</em> major jump that runs on Node 24. SHA pins get a SHA back. When nothing ships yet, it links the upstream issue tracking the bump, or tells you the repo is archived and the action needs replacing. Or scan remote with <code>actnode --repo owner/name</code> — no clone.</p>
     </div><div class="post"></div>
   </section>
 
